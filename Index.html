@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Turbo Rush: Retro Drive</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background: #0b001a; font-family: 'Courier New', Courier, monospace; touch-action: none; }
+        #gameCanvas { display: block; width: 100vw; height: 100vh; }
+        
+        /* Retro CRT Overlay Effect */
+        #crt-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            background-size: 100% 3px, 3px 100%;
+            pointer-events: none;
+            z-index: 20;
+        }
+
+        .ui-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; color: #00f2ff; text-shadow: 0 0 10px #00f2ff, 0 0 20px #ff00de; z-index: 30; }
+        
+        .modal { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            background: rgba(11, 0, 26, 0.95); 
+            border: 2px solid #ff00de;
+            padding: 30px; border-radius: 4px; text-align: center; pointer-events: auto; 
+            min-width: 320px; max-width: 90%; 
+            box-shadow: 0 0 20px #ff00de, inset 0 0 10px #ff00de;
+            z-index: 100; 
+        }
+
+        .btn { 
+            background: #ff00de; color: white; padding: 12px 30px; cursor: pointer; margin-top: 10px; border: none; font-weight: bold; text-transform: uppercase; letter-spacing: 3px; transition: all 0.2s; display: inline-block; 
+            box-shadow: 4px 4px 0px #00f2ff;
+        }
+        .btn:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0px #00f2ff; }
+        
+        .toggle-btn { background: #1a0033; border: 1px solid #ff00de; color: #ff00de; padding: 8px 16px; margin: 0 5px; }
+        .toggle-btn.active { background: #ff00de; color: white; box-shadow: 0 0 10px #ff00de; }
+        
+        .retro-text { font-family: 'Orbitron', sans-serif; text-transform: uppercase; font-style: italic; }
+
+        /* Animation for scrolling sponsored ticker text */
+        @keyframes scroll-text {
+            0% { transform: translateY(100%); opacity: 0; }
+            10% { transform: translateY(0); opacity: 1; }
+            90% { transform: translateY(0); opacity: 1; }
+            100% { transform: translateY(-100%); opacity: 0; }
+        }
+        .ad-scroll {
+            animation: scroll-text 4s infinite ease-in-out;
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@900&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div id="crt-overlay"></div>
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- UI Overlay Containing Gameplay HUD elements -->
+    <div class="ui-overlay">
+        <div class="flex justify-between items-start w-full">
+            <div class="flex flex-col gap-1">
+                <div class="hud-item text-xs font-black tracking-widest text-cyan-400">SECTOR: <span id="level-val" class="text-white">1</span></div>
+                <div class="hud-item text-xs font-black tracking-widest text-pink-500">VELOCITY: <span id="speed-val" class="text-white">0</span></div>
+                <div class="hud-item text-xs font-black tracking-widest text-green-400">AD REVENUE: $<span id="ad-rev-val" class="text-white">0.00</span></div>
+                <div id="active-shield" class="text-[10px] font-bold text-green-400 hidden">>>> SHIELD_ON</div>
+                <div id="active-multiplier" class="text-[10px] font-bold text-yellow-400 hidden">>>> X2_MODE</div>
+            </div>
+            <div class="flex flex-col items-end gap-1">
+                <div class="text-[10px] font-bold tracking-widest text-pink-400">SCORE</div>
+                <div class="text-3xl font-black italic tracking-tighter text-white" id="score-val">000000</div>
+            </div>
+        </div>
+
+        <div class="flex flex-col items-center mb-16">
+            <div class="flex justify-start w-72 mb-1">
+                <div class="text-[10px] font-black uppercase tracking-widest text-cyan-400" id="level-name-display">CYBER CITY</div>
+            </div>
+            <div class="w-72 h-2 bg-pink-900/40 rounded-none border border-pink-500 relative overflow-hidden">
+                <div id="progress-bar" class="h-full bg-cyan-400 w-0 transition-all duration-300 shadow-[0_0_10px_#00f2ff]"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Live Retro Sponsored Ad Banner -->
+    <div id="ad-banner" class="absolute bottom-3 left-1/2 transform -translate-x-1/2 w-[340px] h-[55px] bg-[#100026]/95 border-2 border-[#ff00de] flex items-center justify-between px-3 pointer-events-auto z-50 shadow-[0_0_15px_rgba(255,0,222,0.4),inset 0_0_5px_rgba(255,0,222,0.3)]">
+        <div class="flex flex-col flex-grow text-left overflow-hidden h-[36px] justify-center">
+            <span class="text-[7px] text-[#ff00de] tracking-[0.25em] font-black">SPONSORED LINK</span>
+            <div class="h-[20px] overflow-hidden relative">
+                <span id="ad-text" class="text-white text-[10px] font-bold tracking-wide absolute w-full block ad-scroll">CYBER COLA: FEEL THE NEON RUSH!</span>
+            </div>
+        </div>
+        <button onclick="clickAd()" class="bg-[#00f2ff] text-black font-black px-3 py-1.5 text-[9px] tracking-widest hover:bg-white transition-all shadow-[0_0_10px_rgba(0,242,255,0.5)]">VISIT</button>
+    </div>
+
+    <!-- REAL AD NETWORK CONTAINER FOR PRODUCTION -->
+    <!--
+    To integrate real AdSense or other ad network banners in this spot, uncomment the code below:
+    <div class="absolute bottom-3 left-1/2 transform -translate-x-1/2 z-50 pointer-events-auto">
+        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX" crossorigin="anonymous"></script>
+        <ins class="adsbygoogle"
+             style="display:inline-block;width:320px;height:50px"
+             data-ad-client="ca-pub-XXXXXXXXXXXXXXXX"
+             data-ad-slot="XXXXXXXXXX"></ins>
+        <script>
+             (adsbygoogle = window.adsbygoogle || []).push({});
+        </script>
+    </div>
+    -->
+
+    <div id="start-modal" class="modal">
+        <h1 class="text-5xl font-black mb-4 italic text-white retro-text" style="text-shadow: 3px 3px 0px #ff00de, -2px -2px 0px #00f2ff;">TURBO RUSH</h1>
+        <p class="text-cyan-400 text-[10px] mb-6 tracking-[0.2em]">SYNTHWAVE EDITION // SYSTEM READY</p>
+        <div class="flex justify-center gap-2 mb-6">
+            <button id="btn-normal" class="toggle-btn active" onclick="setMode('normal')">STORY</button>
+            <button id="btn-endless" class="toggle-btn" onclick="setMode('endless')">FREE RUN</button>
+        </div>
+        <button class="btn" onclick="startGame()">INITIATE DRIVE</button>
+    </div>
+
+    <div id="game-over-modal" class="modal" style="display: none;">
+        <h1 class="text-3xl font-black text-red-500 mb-2 italic retro-text">LINK SEVERED</h1>
+        <p id="death-reason" class="text-[10px] text-cyan-400 mb-2 tracking-widest"></p>
+        <div class="border border-[#ff00de] p-3 my-4 bg-[#14002e] text-center">
+            <span class="text-[9px] text-[#ff00de] tracking-wider block mb-1">MOCK AD EARNINGS THIS RUN</span>
+            <span class="text-2xl font-black text-[#00f2ff] tracking-tight">$<span id="ad-earned-end">0.00</span></span>
+        </div>
+        <button class="btn" onclick="startGame()">REBOOT</button>
+    </div>
+
+    <div id="level-complete-modal" class="modal" style="display: none;">
+        <h1 class="text-3xl font-black text-cyan-400 mb-2 italic retro-text">SECTOR BYPASSED</h1>
+        <button class="btn" onclick="nextLevel()">CONTINUE</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Custom SVG shapes for Retro aesthetic, parsed directly on start
+        const ASSETS = {
+            car_tokyo: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg"><path d="M5,45 L15,10 L85,10 L95,45 L90,55 L10,55 Z" fill="#ff00de" stroke="#fff" stroke-width="2"/><rect x="25" y="15" width="50" height="15" fill="#00f2ff" opacity="0.6"/></svg>`,
+            car_canyon: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg"><path d="M5,45 L15,10 L85,10 L95,45 L90,55 L10,55 Z" fill="#ff7700" stroke="#fff" stroke-width="2"/><rect x="25" y="15" width="50" height="15" fill="#ffff00" opacity="0.6"/></svg>`,
+            car_coast: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg"><path d="M5,45 L15,10 L85,10 L95,45 L90,55 L10,55 Z" fill="#00f2ff" stroke="#fff" stroke-width="2"/><rect x="25" y="15" width="50" height="15" fill="#ff00de" opacity="0.6"/></svg>`,
+            barrier: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="40" width="90" height="40" fill="#333" stroke="#ff00de" stroke-width="4"/><path d="M5,40 L25,80 M25,40 L45,80 M45,40 L65,80 M65,40 L85,80" stroke="#ff00de" stroke-width="8"/><rect x="5" y="40" width="90" height="10" fill="#ff00de"/></svg>`,
+            drone: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M10,50 L90,50 M50,10 L50,90" stroke="#ff0000" stroke-width="8"/><circle cx="50" cy="50" r="25" fill="#111" stroke="#ff0000" stroke-width="4"/><circle cx="50" cy="50" r="10" fill="#ff0000"/></svg>`,
+            mine: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M50,5 L60,40 L95,50 L60,60 L50,95 L40,60 L5,50 L40,40 Z" fill="#222" stroke="#ff4400" stroke-width="4"/><circle cx="50" cy="50" r="15" fill="#ff4400"/></svg>`,
+            spikes: `<svg viewBox="0 0 100 40" xmlns="http://www.w3.org/2000/svg"><path d="M0,40 L10,0 L20,40 L30,0 L40,40 L50,0 L60,40 L70,0 L80,40 L90,0 L100,40" fill="#333" stroke="#ff00de" stroke-width="4"/><rect x="0" y="30" width="100" height="10" fill="#ff00de"/></svg>`,
+            debris: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M10,90 L50,10 L90,90 Z" fill="#222" stroke="#ff7700" stroke-width="6"/><path d="M30,90 L50,50 M50,90 L70,50" stroke="#ff7700" stroke-width="4"/></svg>`,
+            buoy: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect x="35" y="10" width="30" height="80" fill="#222" stroke="#00f2ff" stroke-width="5"/><path d="M35,30 L65,50 M35,50 L65,70" stroke="#00f2ff" stroke-width="8"/></svg>`
+        };
+
+        const IMAGES = {};
+        Object.entries(ASSETS).forEach(([key, svg]) => {
+            const img = new Image();
+            img.src = `data:image/svg+xml;base64,${btoa(svg)}`;
+            IMAGES[key] = img;
+        });
+
+        const POWERUP_TYPES = {
+            NITRO: { id: 'nitro', label: '>>>', color: '#ff7700', glow: '#ffaa00' },
+            SHIELD: { id: 'shield', label: 'SHD', color: '#00ffaa', glow: '#ccff00' },
+            MULTIPLIER: { id: 'multiplier', label: 'X2', color: '#00f2ff', glow: '#00ffff' }
+        };
+
+        const themes = [
+            { name: "NEO TOKYO", car: "car_tokyo", sky: "#0b001a", road: "#1a0033", hazards: ['barrier', 'drone', 'mine'], grid: "#ff00de" },
+            { name: "OUTRUN CANYON", car: "car_canyon", sky: "#1a0500", road: "#331100", hazards: ['barrier', 'spikes', 'debris'], grid: "#ff7700" },
+            { name: "CHROME COAST", car: "car_coast", sky: "#000d1a", road: "#001a33", hazards: ['buoy', 'drone', 'mine'], grid: "#00f2ff" }
+        ];
+
+        // Mock Ad rotation database
+        const MOCK_ADS = [
+            "CYBER COLA: FEEL THE NEON RUSH!",
+            "CHROME BODY CO.: UPGRADE YOUR LIMBS!",
+            "MEGACORP NETS: CHIP YOUR MIND TODAY!",
+            "OUTRUN MOTORS: SYST_SPEED_MAXIMUM!",
+            "KRYPTON GLASS: REALITY IS OPTIONAL.",
+            "NEO ARCADIA: DETOX IN DEEP RETRO!"
+        ];
+        let currentAdIndex = 0;
+
+        let state = {
+            active: false,
+            mode: 'normal',
+            currentLevel: 1,
+            themeIndex: 0,
+            score: 0,
+            distanceTraveled: 0,
+            speed: 10,
+            targetSpeed: 12,
+            lane: 1,
+            laneX: [0.25, 0.5, 0.75],
+            playerVisualX: 0.5,
+            items: [],
+            lastFrameTime: 0,
+            lastSpawnDistance: 0,
+            globalTime: 0,
+            hasShield: false,
+            scoreMultiplier: 1,
+            multiplierTimer: 0,
+            gridOffset: 0,
+            adRevenue: 0.00,
+            adEarnedThisRun: 0.00
+        };
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Keyboard navigation
+        window.addEventListener('keydown', e => {
+            if(e.key === 'ArrowLeft' || e.key === 'a') state.lane = Math.max(0, state.lane - 1);
+            if(e.key === 'ArrowRight' || e.key === 'd') state.lane = Math.min(2, state.lane + 1);
+        });
+
+        // Touch gestures for mobile/tablet
+        window.addEventListener('touchstart', e => {
+            if (!state.active) return;
+            const touchX = e.touches[0].clientX;
+            if (touchX < window.innerWidth / 2) state.lane = Math.max(0, state.lane - 1);
+            else state.lane = Math.min(2, state.lane + 1);
+        });
+
+        // Function triggered when user clicks the mock "VISIT" ad button
+        function clickAd() {
+            state.adRevenue += 0.25; // Large CPC bump
+            state.adEarnedThisRun += 0.25;
+            document.getElementById('ad-rev-val').innerText = state.adRevenue.toFixed(2);
+            
+            // Temporary UI indicator that they earned money
+            const visitBtn = document.querySelector('#ad-banner button');
+            const origText = visitBtn.innerText;
+            visitBtn.innerText = "+$0.25";
+            visitBtn.style.backgroundColor = "#00ffaa";
+            setTimeout(() => {
+                visitBtn.innerText = origText;
+                visitBtn.style.backgroundColor = "#00f2ff";
+            }, 1000);
+        }
+
+        // Toggles ad copy periodically
+        setInterval(() => {
+            currentAdIndex = (currentAdIndex + 1) % MOCK_ADS.length;
+            const adTextEl = document.getElementById('ad-text');
+            if (adTextEl) {
+                // Instantly cycle the text layout out and in
+                adTextEl.innerText = MOCK_ADS[currentAdIndex];
+                
+                // Add a micro impression payout automatically
+                if (state.active) {
+                    state.adRevenue += 0.01;
+                    state.adEarnedThisRun += 0.01;
+                    document.getElementById('ad-rev-val').innerText = state.adRevenue.toFixed(2);
+                }
+            }
+        }, 4000);
+
+        function spawnObject(customZ = 25) {
+            const theme = themes[state.themeIndex];
+            const lane = Math.floor(Math.random() * 3);
+            const rand = Math.random();
+            const powerUpChance = 0.12 + (state.currentLevel * 0.005);
+            
+            if (rand < Math.min(0.25, powerUpChance)) {
+                const types = Object.values(POWERUP_TYPES);
+                const config = types[Math.floor(Math.random() * types.length)];
+                state.items.push({ lane, z: customZ, config, isPowerup: true, rot: 0 });
+            } else {
+                const imgKey = theme.hazards[Math.floor(Math.random() * theme.hazards.length)];
+                state.items.push({ lane, z: customZ, imgKey, isPowerup: false });
+            }
+        }
+
+        function update(deltaTime) {
+            if (!state.active) return;
+            state.globalTime += deltaTime;
+            state.playerVisualX += (state.laneX[state.lane] - state.playerVisualX) * 0.15;
+            state.speed += (state.targetSpeed - state.speed) * 0.01;
+            state.distanceTraveled += state.speed;
+            state.gridOffset = (state.distanceTraveled * 0.1) % 100;
+
+            // Generate slow passive ad impression revenue over duration of play (CPM)
+            state.adRevenue += 0.0001;
+            state.adEarnedThisRun += 0.0001;
+            document.getElementById('ad-rev-val').innerText = state.adRevenue.toFixed(2);
+
+            if (state.multiplierTimer > 0) {
+                state.multiplierTimer -= deltaTime;
+                if (state.multiplierTimer <= 0) {
+                    state.scoreMultiplier = 1;
+                    document.getElementById('active-multiplier').classList.add('hidden');
+                }
+            }
+
+            state.score += Math.floor((state.speed / 10) * state.scoreMultiplier);
+            const distGoal = 15000 + (state.currentLevel * 10000);
+            
+            if (state.mode === 'normal') {
+                document.getElementById('progress-bar').style.width = `${Math.min(100, (state.distanceTraveled / distGoal) * 100)}%`;
+                if (state.distanceTraveled >= distGoal) winLevel();
+            }
+
+            document.getElementById('score-val').innerText = Math.floor(state.score).toString().padStart(6, '0');
+            document.getElementById('speed-val').innerText = Math.floor(state.speed * 8);
+            document.getElementById('level-val').innerText = state.currentLevel;
+
+            // Sparse spawn logic to minimize frustration
+            const spawnGap = Math.max(600, 1100 - (state.currentLevel * 50));
+            if (state.distanceTraveled - state.lastSpawnDistance > spawnGap) {
+                spawnObject();
+                if (state.currentLevel > 3 && Math.random() < (0.05 + state.currentLevel * 0.03)) {
+                    setTimeout(() => { if(state.active) spawnObject(); }, 200);
+                }
+                state.lastSpawnDistance = state.distanceTraveled;
+            }
+
+            const moveSpeed = (state.speed * 0.006) + (state.currentLevel * 0.0002);
+            state.items.forEach(item => {
+                item.z -= moveSpeed;
+                if (item.isPowerup) item.rot += 0.05;
+
+                // Collision Box
+                if (item.z < 0.15 && item.z > -0.15 && Math.abs(state.laneX[item.lane] - state.playerVisualX) < 0.12) {
+                    if (item.isPowerup) {
+                        if (item.config.id === 'nitro') state.targetSpeed = Math.min(state.targetSpeed + 15, 75);
+                        if (item.config.id === 'shield') { state.hasShield = true; document.getElementById('active-shield').classList.remove('hidden'); }
+                        if (item.config.id === 'multiplier') { state.scoreMultiplier = 2; state.multiplierTimer = 6000; document.getElementById('active-multiplier').classList.remove('hidden'); }
+                        item.z = -1;
+                    } else if (!state.hasShield) {
+                        gameOver(`SYSTEM_FAILURE: ${item.imgKey.toUpperCase()}`);
+                    } else {
+                        state.hasShield = false;
+                        document.getElementById('active-shield').classList.add('hidden');
+                        item.z = -1;
+                    }
+                }
+            });
+            state.items = state.items.filter(i => i.z > -0.5);
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const theme = themes[state.themeIndex];
+            const horizon = canvas.height * 0.55;
+
+            // Retro Sky Gradient
+            const skyGrad = ctx.createLinearGradient(0, 0, 0, horizon);
+            skyGrad.addColorStop(0, '#000');
+            skyGrad.addColorStop(1, theme.sky);
+            ctx.fillStyle = skyGrad;
+            ctx.fillRect(0, 0, canvas.width, horizon);
+
+            // Retro Sun (Cyber Sun)
+            const sunY = horizon - 50;
+            const sunR = 120;
+            const sunGrad = ctx.createLinearGradient(0, sunY - sunR, 0, sunY + sunR);
+            sunGrad.addColorStop(0, '#ff00de');
+            sunGrad.addColorStop(0.6, '#ff7700');
+            sunGrad.addColorStop(1, '#ffff00');
+            ctx.fillStyle = sunGrad;
+            ctx.beginPath(); ctx.arc(canvas.width / 2, sunY, sunR, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = theme.sky;
+            for(let i = 0; i < 15; i++) {
+                const lineY = sunY - sunR + (i * 18);
+                if (lineY > sunY - 40) ctx.fillRect(canvas.width/2 - sunR, lineY, sunR * 2, 2 + (i * 0.8));
+            }
+
+            // Road Base
+            ctx.fillStyle = theme.road;
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height); ctx.lineTo(canvas.width * 0.45, horizon);
+            ctx.lineTo(canvas.width * 0.55, horizon); ctx.lineTo(canvas.width, canvas.height);
+            ctx.fill();
+
+            // Grid Layout
+            ctx.strokeStyle = theme.grid; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
+            for (let i = 0; i < 15; i++) {
+                const z = (i * 2 + (state.gridOffset / 50)) % 30;
+                const scale = 1 / (z + 0.1);
+                const y = horizon + (canvas.height - horizon) * scale * 2;
+                if (y > horizon && y < canvas.height) {
+                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+                }
+            }
+            for (let i = -10; i <= 10; i++) {
+                ctx.beginPath(); ctx.moveTo(canvas.width / 2, horizon);
+                ctx.lineTo(canvas.width / 2 + (i * canvas.width * 0.2), canvas.height); ctx.stroke();
+            }
+            ctx.globalAlpha = 1.0;
+
+            // Render Items
+            state.items.sort((a,b) => b.z - a.z).forEach(item => {
+                const scale = 1.2 / (item.z + 0.1);
+                const x = canvas.width / 2 + (state.laneX[item.lane] - 0.5) * canvas.width * scale * 0.8;
+                const y = horizon + (canvas.height - horizon) * scale;
+                const size = 180 * scale;
+
+                if (y > horizon && y < canvas.height * 1.5) {
+                    ctx.save();
+                    ctx.translate(x, y);
+                    
+                    if (item.isPowerup) {
+                        // Floating, glowing active powerup
+                        const pulse = 1 + Math.sin(state.globalTime * 0.01) * 0.15;
+                        const floatY = Math.sin(state.globalTime * 0.005) * 20 * scale;
+                        ctx.translate(0, floatY);
+                        
+                        ctx.shadowBlur = 40 * scale;
+                        ctx.shadowColor = item.config.glow;
+                        
+                        ctx.strokeStyle = item.config.color;
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.ellipse(0, -size/2, (size/2) * pulse, (size/6) * pulse, item.rot, 0, Math.PI * 2);
+                        ctx.stroke();
+
+                        ctx.fillStyle = item.config.color;
+                        ctx.beginPath(); ctx.arc(0, -size/2, size/4, 0, Math.PI * 2); ctx.fill();
+                        
+                        ctx.fillStyle = "#fff";
+                        ctx.font = `bold ${Math.floor(size/3.5)}px Orbitron`;
+                        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                        ctx.fillText(item.config.label, 0, -size/2);
+                    } else {
+                        // High-contrast, glowing danger obstacle
+                        const warnPulse = Math.sin(state.globalTime * 0.01) > 0 ? 0.3 : 0;
+                        ctx.shadowBlur = 15 * scale;
+                        ctx.shadowColor = `rgba(255, 0, 0, ${0.5 + warnPulse})`;
+                        
+                        const img = IMAGES[item.imgKey];
+                        if (img) ctx.drawImage(img, -size/2, -size, size, size);
+                        
+                        ctx.fillStyle = "#ff0000";
+                        ctx.beginPath(); ctx.arc(0, -size * 0.8, 5 * scale, 0, Math.PI*2); ctx.fill();
+                    }
+                    ctx.restore();
+                }
+            });
+
+            // Player Vehicle
+            const px = canvas.width / 2 + (state.playerVisualX - 0.5) * canvas.width * 0.85;
+            const py = canvas.height * 0.95;
+            const pSize = 260;
+            const carImg = IMAGES[theme.car];
+            
+            ctx.save();
+            ctx.shadowBlur = 30; ctx.shadowColor = "#ff00de";
+            if (carImg) ctx.drawImage(carImg, px - pSize/2, py - pSize * 0.6, pSize, pSize * 0.6);
+            ctx.restore();
+            
+            if (state.hasShield) {
+                ctx.strokeStyle = "#00ffaa"; ctx.lineWidth = 4; ctx.beginPath();
+                ctx.setLineDash([10, 5]); ctx.arc(px, py - 50, 150, 0, Math.PI*2); ctx.stroke();
+                ctx.setLineDash([]);
+            }
+        }
+
+        function gameLoop(t) {
+            update(t - state.lastFrameTime);
+            state.lastFrameTime = t;
+            draw();
+            if (state.active) requestAnimationFrame(gameLoop);
+        }
+
+        function startGame() {
+            state.active = true;
+            state.distanceTraveled = 0; state.score = 0; state.speed = 10;
+            state.targetSpeed = 12 + (state.currentLevel * 2);
+            state.items = []; state.hasShield = false; state.lastSpawnDistance = 0;
+            state.adEarnedThisRun = 0.00;
+            
+            // Populates distant horizon instantly on load
+            for(let i = 1; i <= 2; i++) spawnObject(18 + (i * 7)); 
+            
+            document.querySelectorAll('.modal').forEach(m => m.style.display = 'none');
+            document.getElementById('level-name-display').innerText = themes[state.themeIndex].name;
+            state.lastFrameTime = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function winLevel() {
+            state.active = false;
+            document.getElementById('level-complete-modal').style.display = 'block';
+        }
+
+        function nextLevel() {
+            state.currentLevel++;
+            state.themeIndex = (state.themeIndex + 1) % themes.length;
+            startGame();
+        }
+
+        function gameOver(r) {
+            state.active = false;
+            document.getElementById('game-over-modal').style.display = 'block';
+            document.getElementById('death-reason').innerText = r;
+            document.getElementById('ad-earned-end').innerText = state.adEarnedThisRun.toFixed(2);
+        }
+
+        function setMode(m) { 
+            state.mode = m; 
+            document.getElementById('btn-normal').classList.toggle('active', m === 'normal');
+            document.getElementById('btn-endless').classList.toggle('active', m === 'endless');
+        }
+    </script>
+</body>
+</html>
